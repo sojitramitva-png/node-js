@@ -1,5 +1,5 @@
 const { ObjectId } = require('mongodb');
-const taskModal = require("../../collection/taskModel");
+// const taskModal = require("../../collection/taskModel");
 
 module.exports = {
     getTaskList: async (req) => {

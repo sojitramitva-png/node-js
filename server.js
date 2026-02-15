@@ -2,6 +2,8 @@ global.express = require("express");
 const bodyParser = require('body-parser');
 const cors = require("cors");
 const { Server } = require('socket.io');
+const admin = require("firebase-admin");
+const serviceAccount = require("./serviceAccountKey.json");
 
 global.app = express();
 global.jwt = require('jsonwebtoken');
@@ -29,10 +31,16 @@ app.use(function (req, res, next) {
     next();
 });
 
-global.mongoose = require('mongoose');
-mongoose.Promise = global.Promise;
-global.connection = mongoose.createConnection("mongodb://127.0.0.1:27017/trelloLite");
-global.Schema = mongoose.Schema;
+// global.mongoose = require('mongoose');
+// mongoose.Promise = global.Promise;
+// global.connection = mongoose.createConnection("mongodb://127.0.0.1:27017/trelloLite");
+// global.Schema = mongoose.Schema;
+
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+});
+
+global.db = admin.firestore();
 
 
 global.io = new Server(http, {

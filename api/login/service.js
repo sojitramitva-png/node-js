@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { ObjectId } = require('mongodb');
-const userModal = require("../../collection/userModel");
+//const userModal = require("../../collection/userModel");
 const passwordService = require('../../passwordService');
 
 
@@ -8,7 +8,9 @@ module.exports = {
     auth: async (req) => {
         try {
             //check user exists or not 
-            let ExistingUser = await userModal.findOne({ email: req.body.email });
+            // let ExistingUser = await userModal.findOne({ email: req.body.email });
+            let ExistingUser = await db.collection("users").where("email", "==", req.body.email).limit(1).get();
+
             if (ExistingUser) {
                 return ({ status: 200, data: { status: 'duplicate', message: "User Already exists !", data: null } });
             } else {
