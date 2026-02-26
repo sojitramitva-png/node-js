@@ -6,14 +6,11 @@ module.exports = {
   getTaskList: async (req) => {
     try {
       const { role, userId: decodedUserId } = req.decoded;
-
-      let userId = role === "admin"
-        ? req.query.userId
-        : decodedUserId;
+      let userId = role === "admin" ? req.query.userId : decodedUserId;
 
       const snapshot = await db.collection("tasks")
         .where("userId", "==", userId)
-        .where("isdelete", "!=", true)
+        .where("isdelete", "==", false)
         .orderBy("cdt", "desc")
         .get();
 
