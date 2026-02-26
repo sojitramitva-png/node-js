@@ -1,110 +1,184 @@
-const { ObjectId } = require('mongodb');
-// const taskModal = require("../../collection/taskModel");
+const { db, admin } = require("../../firebase");
 
 module.exports = {
-    getTaskList: async (req) => {
-        try {
-            const { role } = req.decoded;
-            let userId = "";
-            if (role === 'admin') {
-                userId = req.query.userId // Get userId from query parameters for admin
-            } else {
-                userId = req.decoded.userId; // Use decoded userId for non-admin users
-            }
-            let lstTask = await taskModal.find({ $and: [{ userId: new ObjectId(userId) }, { isdelete: { $ne: true } }] }).sort({ cdt: -1 });
-            return ({ status: 200, data: { status: "success", data: lstTask } });
-        } catch (error) {
-            return ({ status: 400, data: "Get task list faild !" });
-        }
-    },
-    addTask: async (req) => {
-        try {
-            if (!req.body._id) {
-                let userId = req.decoded.userId;
-                let objTask = new taskModal(req.body);
-                objTask._id = new ObjectId();
-                objTask.userId = req.body.userId || userId; // Use provided userId or fallback to decoded userId
-                objTask.cdy = userId; // Created by user id
-                await objTask.save();
 
-                // Emit to task owner and creator (if different)
-                io.to(`user_${objTask.userId}`).emit('taskCreated', objTask);
-                if (objTask.userId !== objTask.cdy) {
-                    io.to(`user_${objTask.cdy}`).emit('taskCreated', objTask);
-                }
+  // ================= GET TASK LIST =================
+  getTaskList: async (req) => {
+    try {
+      const { role, userId: decodedUserId } = req.decoded;
 
-                return ({ status: 200, data: { status: "success", data: objTask } });
-            }
-        } catch (error) {
-            console.log(error, "errorerrorerrorerror");
+      let userId = role === "admin"
+        ? req.query.userId
+        : decodedUserId;
 
-            return ({ status: 400, data: "add task faild !" });
-        }
-    },
-    deleteTask: async (req) => {
-        try {
-            const { userId, role } = req.decoded;
-            let taskId = req.body._id;
+      const snapshot = await db.collection("tasks")
+        .where("userId", "==", userId)
+        .where("isdelete", "!=", true)
+        .orderBy("cdt", "desc")
+        .get();
 
-            let deleteQuery = {};
+      const lstTask = snapshot.docs.map(doc => ({
+        _id: doc.id,
+        ...doc.data()
+      }));
 
-            // Admin can delete any task, so only check _id
-            if (role === 'admin') {
-                deleteQuery = { _id: taskId };
-            } else { // Non-admin users can only delete tasks they created
-                deleteQuery = { $and: [{ cdy: userId }, { _id: taskId }] };
-            }
+      return {
+        status: 200,
+        data: { status: "success", data: lstTask }
+      };
 
-            // Get task details before deletion to know who to notify
-            const taskToDelete = await taskModal.findOne(deleteQuery);
-
-            if (taskToDelete) {
-                await taskModal.findOneAndUpdate(deleteQuery, { isdelete: true });
-
-                // Emit to task owner and creator (if different)
-                io.to(`user_${taskToDelete.userId}`).emit('taskDeleted', { taskId });
-                if (taskToDelete.userId.toString() !== taskToDelete.cdy.toString()) {
-                    io.to(`user_${taskToDelete.cdy}`).emit('taskDeleted', { taskId });
-                }
-            }
-            return ({ status: 200, data: { status: "success", data: null } });
-        } catch (error) {
-            return ({ status: 400, data: "delete task faild !" });
-        }
-    },
-
-    updateTask: async (req) => {
-        try {
-            const { userId, role } = req.decoded;
-            let updateObj = {};
-            if (req.body.title) updateObj.title = req.body.title;
-            if (req.body.desc) updateObj.desc = req.body.desc;
-            if (req.body.priority) updateObj.priority = req.body.priority;
-            if (req.body.status) updateObj.status = req.body.status;
-            if (req.body.comments) updateObj.comments = req.body.comments;
-
-            // Build dynamic query based on user role
-            let updateQuery = {};
-
-            // Admin can update any task
-            if (role === 'admin' || req.body.comments || req.body.status) {
-                updateQuery = { _id: req.body._id };
-            } else {
-                updateQuery = { $and: [{ cdy: userId }, { _id: req.body._id }] };
-            }
-            let objTask = await taskModal.findOneAndUpdate(updateQuery, { $set: updateObj }, { new: true });
-            if (objTask) {
-
-                // Emit to task owner and creator (if different)
-                io.to(`user_${objTask.userId}`).emit('taskUpdated', objTask);
-                if (objTask.userId.toString() !== objTask.cdy.toString()) {
-                    io.to(`user_${objTask.cdy}`).emit('taskUpdated', objTask);
-                }
-            }
-
-            return ({ status: 200, data: { status: "success", data: objTask } });
-        } catch (error) {
-            return ({ status: 400, data: "update task faild !" });
-        }
+    } catch (error) {
+      console.log(error);
+      return { status: 400, data: "Get task list failed !" };
     }
-}
+  },
+
+
+  // ================= ADD TASK =================
+  addTask: async (req) => {
+    try {
+
+      const decodedUserId = req.decoded.userId;
+      const docRef = db.collection("tasks").doc();
+
+      const newTask = {
+        title: req.body.title,
+        desc: req.body.desc,
+        priority: req.body.priority,
+        status: req.body.status || "pending",
+        comments: req.body.comments || "",
+        userId: req.body.userId || decodedUserId,
+        cdy: decodedUserId,
+        isdelete: false,
+        cdt: admin.firestore.FieldValue.serverTimestamp()
+      };
+
+      await docRef.set(newTask);
+
+      const responseTask = {
+        _id: docRef.id,
+        ...newTask
+      };
+
+      // Socket Emit
+      io.to(`user_${newTask.userId}`).emit("taskCreated", responseTask);
+
+      if (newTask.userId !== newTask.cdy) {
+        io.to(`user_${newTask.cdy}`).emit("taskCreated", responseTask);
+      }
+
+      return {
+        status: 200,
+        data: { status: "success", data: responseTask }
+      };
+
+    } catch (error) {
+      console.log(error);
+      return { status: 400, data: "Add task failed !" };
+    }
+  },
+
+
+  // ================= DELETE TASK (Soft Delete) =================
+  deleteTask: async (req) => {
+    try {
+
+      const { userId, role } = req.decoded;
+      const taskId = req.body._id;
+
+      const docRef = db.collection("tasks").doc(taskId);
+      const taskDoc = await docRef.get();
+
+      if (!taskDoc.exists) {
+        return { status: 404, data: "Task not found" };
+      }
+
+      const taskData = taskDoc.data();
+
+      // Permission Check
+      if (role !== "admin" && taskData.cdy !== userId) {
+        return { status: 403, data: "Permission denied" };
+      }
+
+      await docRef.update({ isdelete: true });
+
+      // Socket Emit
+      io.to(`user_${taskData.userId}`).emit("taskDeleted", { taskId });
+
+      if (taskData.userId !== taskData.cdy) {
+        io.to(`user_${taskData.cdy}`).emit("taskDeleted", { taskId });
+      }
+
+      return {
+        status: 200,
+        data: { status: "success", data: null }
+      };
+
+    } catch (error) {
+      console.log(error);
+      return { status: 400, data: "Delete task failed !" };
+    }
+  },
+
+
+  // ================= UPDATE TASK =================
+  updateTask: async (req) => {
+    try {
+
+      const { userId, role } = req.decoded;
+      const taskId = req.body._id;
+
+      let updateObj = {};
+
+      if (req.body.title) updateObj.title = req.body.title;
+      if (req.body.desc) updateObj.desc = req.body.desc;
+      if (req.body.priority) updateObj.priority = req.body.priority;
+      if (req.body.status) updateObj.status = req.body.status;
+      if (req.body.comments) updateObj.comments = req.body.comments;
+
+      const docRef = db.collection("tasks").doc(taskId);
+      const taskDoc = await docRef.get();
+
+      if (!taskDoc.exists) {
+        return { status: 404, data: "Task not found" };
+      }
+
+      const taskData = taskDoc.data();
+
+      // Permission Logic
+      if (
+        role !== "admin" &&
+        taskData.cdy !== userId &&
+        !req.body.comments &&
+        !req.body.status
+      ) {
+        return { status: 403, data: "Permission denied" };
+      }
+
+      await docRef.update(updateObj);
+
+      const updatedTask = {
+        _id: taskId,
+        ...taskData,
+        ...updateObj
+      };
+
+      // Socket Emit
+      io.to(`user_${taskData.userId}`).emit("taskUpdated", updatedTask);
+
+      if (taskData.userId !== taskData.cdy) {
+        io.to(`user_${taskData.cdy}`).emit("taskUpdated", updatedTask);
+      }
+
+      return {
+        status: 200,
+        data: { status: "success", data: updatedTask }
+      };
+
+    } catch (error) {
+      console.log(error);
+      return { status: 400, data: "Update task failed !" };
+    }
+  }
+
+};
