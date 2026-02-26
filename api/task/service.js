@@ -6,17 +6,17 @@ module.exports = {
   getTaskList: async (req) => {
     try {
       const { role, userId: decodedUserId } = req.decoded;
+      let userId = role === "admin" ? req.query.userId : decodedUserId;
 
-      let userId = role === "admin"
-        ? req.query.userId
-        : decodedUserId;
+      console.log("calll====>>>>1");
 
       const snapshot = await db.collection("tasks")
         .where("userId", "==", userId)
-        .where("isdelete", "!=", true)
+        .where("isdelete", "==", false)
         .orderBy("cdt", "desc")
         .get();
 
+      console.log("calll====>>>>222");
       const lstTask = snapshot.docs.map(doc => ({
         _id: doc.id,
         ...doc.data()
